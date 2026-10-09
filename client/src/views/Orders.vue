@@ -29,7 +29,7 @@
 
       <div class="card">
         <div class="card-header">
-          <h3 class="card-title">{{ t('orders.allOrders') }} ({{ orders.length }})</h3>
+          <h3 class="card-title">{{ t('orders.allOrders') }} ({{ regularOrders.length }})</h3>
         </div>
         <div class="table-container">
           <table class="orders-table">
@@ -45,7 +45,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="order in orders" :key="order.id">
+              <tr v-for="order in regularOrders" :key="order.id">
                 <td class="col-order-number"><strong>{{ order.order_number }}</strong></td>
                 <td class="col-customer">{{ translateCustomerName(order.customer) }}</td>
                 <td class="col-items">
@@ -69,6 +69,37 @@
                 <td class="col-date">{{ formatDate(order.order_date) }}</td>
                 <td class="col-date">{{ formatDate(order.expected_delivery) }}</td>
                 <td class="col-value"><strong>{{ currencySymbol }}{{ order.total_value.toLocaleString() }}</strong></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Submitted Orders section: only rendered when restocking orders exist -->
+      <div class="card" v-if="restockingOrders.length > 0">
+        <div class="card-header">
+          <h3 class="card-title">Submitted Orders ({{ restockingOrders.length }})</h3>
+        </div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Order #</th>
+                <th>Items</th>
+                <th>Total Value</th>
+                <th>Submitted Date</th>
+                <th>Expected Delivery</th>
+                <th>Lead Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="order in restockingOrders" :key="order.id">
+                <td><strong>{{ order.order_number }}</strong></td>
+                <td>{{ order.items.length }} item(s)</td>
+                <td><strong>{{ currencySymbol }}{{ order.total_value.toLocaleString() }}</strong></td>
+                <td>{{ formatDate(order.order_date) }}</td>
+                <td>{{ formatDate(order.expected_delivery) }}</td>
+                <td><span class="badge info">{{ order.lead_time_days }} days</span></td>
               </tr>
             </tbody>
           </table>
@@ -129,8 +160,12 @@ export default {
       loadOrders()
     })
 
+    // Restocking orders have order_type === 'restocking'; all others are regular
+    const regularOrders = computed(() => orders.value.filter(o => o.order_type !== 'restocking'))
+    const restockingOrders = computed(() => orders.value.filter(o => o.order_type === 'restocking'))
+
     const getOrdersByStatus = (status) => {
-      return orders.value.filter(order => order.status === status)
+      return regularOrders.value.filter(order => order.status === status)
     }
 
     const getOrderStatusClass = (status) => {
@@ -160,6 +195,8 @@ export default {
       loading,
       error,
       orders,
+      regularOrders,
+      restockingOrders,
       getOrdersByStatus,
       getOrderStatusClass,
       formatDate,

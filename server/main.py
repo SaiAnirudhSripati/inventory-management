@@ -2,6 +2,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 from pydantic import BaseModel
+import random
+from datetime import datetime, timedelta
 from mock_data import inventory_items, orders, demand_forecasts, backlog_items, spending_summary, monthly_spending, category_spending, recent_transactions, purchase_orders
 
 app = FastAPI(title="Factory Inventory Management System")
@@ -80,6 +82,8 @@ class Order(BaseModel):
     actual_delivery: Optional[str] = None
     warehouse: Optional[str] = None
     category: Optional[str] = None
+    order_type: Optional[str] = None
+    lead_time_days: Optional[int] = None
 
 class DemandForecast(BaseModel):
     id: str
@@ -119,6 +123,15 @@ class CreatePurchaseOrderRequest(BaseModel):
     unit_cost: float
     expected_delivery_date: str
     notes: Optional[str] = None
+
+class RestockingItem(BaseModel):
+    item_sku: str
+    item_name: str
+    quantity: int
+    unit_cost: float
+
+class RestockingOrderRequest(BaseModel):
+    items: List[RestockingItem]
 
 # API endpoints
 @app.get("/")
@@ -303,6 +316,80 @@ def get_monthly_trends():
     result = list(months.values())
     result.sort(key=lambda x: x['month'])
     return result
+
+class Task(BaseModel):
+    id: str
+    title: str
+    completed: bool = False
+    created_at: str
+
+class TaskCreate(BaseModel):
+    title: str
+
+# In-memory task store
+_tasks: List[dict] = []
+_task_id_counter = 1
+
+@app.get("/api/tasks", response_model=List[Task])
+def get_tasks():
+    return _tasks
+
+@app.post("/api/tasks", response_model=Task, status_code=201)
+def create_task(task: TaskCreate):
+    global _task_id_counter
+    new_task = {
+        "id": str(_task_id_counter),
+        "title": task.title,
+        "completed": False,
+        "created_at": datetime.now().isoformat(),
+    }
+    _task_id_counter += 1
+    _tasks.append(new_task)
+    return new_task
+
+@app.patch("/api/tasks/{task_id}", response_model=Task)
+def toggle_task(task_id: str):
+    for task in _tasks:
+        if task["id"] == task_id:
+            task["completed"] = not task["completed"]
+            return task
+    raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+@app.delete("/api/tasks/{task_id}")
+def delete_task(task_id: str):
+    for i, task in enumerate(_tasks):
+        if task["id"] == task_id:
+            _tasks.pop(i)
+            return {"deleted": task_id}
+    raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+@app.post("/api/restocking-orders", response_model=Order, status_code=201)
+def create_restocking_order(request: RestockingOrderRequest):
+    """Create a restocking order from the Restocking tab recommendations."""
+    lead_time = random.randint(3, 14)
+    now = datetime.now()
+    expected = now + timedelta(days=lead_time)
+    new_id = str(len(orders) + 1)
+    order_number = f"RST-{now.year}-{new_id.zfill(4)}"
+    total_value = sum(item.quantity * item.unit_cost for item in request.items)
+    new_order = {
+        "id": new_id,
+        "order_number": order_number,
+        "customer": "Internal Restocking",
+        "items": [{"sku": i.item_sku, "name": i.item_name,
+                   "quantity": i.quantity, "unit_price": i.unit_cost}
+                  for i in request.items],
+        "status": "Submitted",
+        "order_date": now.isoformat(),
+        "expected_delivery": expected.isoformat(),
+        "total_value": round(total_value, 2),
+        "warehouse": "all",
+        "category": None,
+        "order_type": "restocking",
+        "lead_time_days": lead_time,
+    }
+    orders.append(new_order)
+    return new_order
 
 if __name__ == "__main__":
     import uvicorn
